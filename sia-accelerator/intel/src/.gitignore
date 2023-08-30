@@ -1,0 +1,4 @@
+*
+!.gitignore
+!copy_generated_rtl.sh
+!*/

@@ -1,0 +1,7 @@
+template_tb.json
+
+C:../../../mpf_codes/hw/rtl/base_sources.txt
+C:../../../src/sources.txt
+
++incdir+.
+template_tb.sv

@@ -31,6 +31,7 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "helper.h"
@@ -40,9 +41,8 @@
 #include <sstream>
 #include <iostream>
 
-#include "mkl.h"
-#include "mkl_lapacke.h"
 #include <signal.h>
+#include "../zipf.hpp"
 
 struct alignas(CACHELINE_SIZE) FGParam;
 template <size_t len>
@@ -86,6 +86,18 @@ struct alignas(CACHELINE_SIZE) FGParam {
 
   double latency_sum;
   int latency_count;
+#ifdef LATENCY_BREAKDOWN
+  double group_traversal_sum = 0.0;
+  uint32_t group_traversal_count = 0;
+  double inference_sum = 0.0;
+  uint32_t inference_count = 0;
+  double linear_search_sum = 0.0;
+  uint32_t linear_search_count = 0;
+  double range_search_sum = 0.0;
+  uint32_t range_search_count = 0;
+  double buffer_search_sum = 0.0;
+  uint32_t buffer_search_count = 0;
+#endif
 };
 
 template <size_t len>
@@ -181,40 +193,16 @@ int main(int argc, char **argv) {
 std::mt19937 global_gen(seed);
 std::uniform_int_distribution<int64_t> global_rand_int8(
     0, std::numeric_limits<uint8_t>::max());
+std::uniform_int_distribution<uint64_t> global_rand_uint64(
+    0, std::numeric_limits<uint64_t>::max());
 
 std::uniform_real_distribution<double> global_ratio_dis(0, 1);
 
+
 void key_gen(uint8_t *buf) {
-  // Determine prefix type
-  double type = global_ratio_dis(global_gen);
-
-  #define TYPE1_RATIO 0.4882636975
-  #define TYPE2_RATIO 0.2750429622
-  #define TYPE3_RATIO 0.03223222403
-  #define TYPE4_RATIO 0.01539234662
-  
-  int remain = 0;
-  if (type <= TYPE1_RATIO) {
-    memcpy(buf, "Dk-qDeZhMTD-qDZDNeHUD-q55h-l.F_", 31);
-    remain += 31;
-  } else if (type <= TYPE1_RATIO + TYPE2_RATIO) {
-    memcpy(buf, "Dk-qDeZhMTD-qDUDHUb-q55h-l.F_", 29);
-    remain += 29;
-  } else if (type <= TYPE1_RATIO + TYPE2_RATIO + TYPE3_RATIO) {
-    memcpy(buf, "DkqqlJ-qDeZhMTD-qDZDNeHUD-q55h-l.F_", 35);
-    remain += 35;
-  } else if (type <= TYPE1_RATIO + TYPE2_RATIO + TYPE3_RATIO + TYPE4_RATIO) {
-    memcpy(buf, "Dkqpl-qDeZhMTD-pq5hDUhDs-qDUDHUb-q55h-l.F_", 42);
-    remain += 42;
-  } else {
-    // do nothing
-  }
-
-  // Put remain
-  for (size_t j=remain; j<sizeof(index_key_t); j++){
+  for (size_t j=0; j<sizeof(index_key_t); j++){
     buf[j] = (uint8_t)global_rand_int8(global_gen);
   }
-
   return;
 }
 
@@ -226,137 +214,298 @@ inline void prepare_sindex(sindex_t *&table) {
       exist_keys.push_back(k);
   }
 
-  if (insert_ratio > 0) {
-      non_exist_keys.reserve(table_size);
-      for (size_t i = 0; i < table_size; ++i) {
-          index_key_t k;
-          key_gen(k.buf);
-          non_exist_keys.push_back(k);
-      }
-  }
+    if (insert_ratio > 0) {
+        non_exist_keys.reserve(table_size);
+        for (size_t i = 0; i < table_size; ++i) {
+            index_key_t k;
+            key_gen(k.buf);
+            non_exist_keys.push_back(k);
+        }
+    }
 
   COUT_VAR(exist_keys.size());
   COUT_VAR(non_exist_keys.size());
 
   // initilize SIndex (sort keys first)
   std::sort(exist_keys.begin(), exist_keys.end());
+#ifdef SEQUENTIAL_DIST
+  std::sort(non_exist_keys.begin(), non_exist_keys.end());
+#endif
+#ifdef HOTSPOT_DIST
+  std::sort(non_exist_keys.begin(), non_exist_keys.end());
+#endif
+#ifdef EXPONENT_DIST
+  std::sort(non_exist_keys.begin(), non_exist_keys.end());
+  // Shuffle with Exponential distribution
+  std::mt19937 gen(seed);
+  std::exponential_distribution<double> exp_dis(EXP_LAMBDA);
+  std::vector<std::pair<double, index_key_t>> values;
+  for (const index_key_t& s : non_exist_keys) {
+    values.push_back(std::make_pair(exp_dis(gen), s));
+  }
+  std::sort(values.begin(), values.end());
+  for(size_t i=0; i<non_exist_keys.size(); i++){
+    non_exist_keys[i] = values[i].second;
+  }
+#endif
+#ifdef ZIPF_DIST
+  std::sort(non_exist_keys.begin(), non_exist_keys.end());
+  // Shuffle with zipfian distribution
+  std::default_random_engine generator;
+  zipfian_int_distribution<int>::param_type p(1, 1e6, 0.99, 27.000);
+  zipfian_int_distribution<int> zipf_dis(p);
+  std::vector<std::pair<double, index_key_t>> values;
+  for (const index_key_t& s : non_exist_keys) {
+    double z = (double)(zipf_dis(generator)) / (double)1e6;
+    values.push_back(std::make_pair(z, s));
+  }
+  std::sort(values.begin(), values.end());
+  for(size_t i=0; i<non_exist_keys.size(); i++){
+    non_exist_keys[i] = values[i].second;
+  }
+#endif
   std::vector<uint64_t> vals(exist_keys.size(), 1);
   table = new sindex_t(exist_keys, vals, fg_n, 1);
 }
 
 void segfault_handler(int signum) {
-    std::cout << "segfault\n";
     return;
 }
 
 void *run_fg(void *param) {
-  fg_param_t &thread_param = *(fg_param_t *)param;
-  uint32_t thread_id = thread_param.thread_id;
-  sindex_t *table = thread_param.table;
+    fg_param_t &thread_param = *(fg_param_t *)param;
+    uint32_t thread_id = thread_param.thread_id;
+    sindex_t *table = thread_param.table;
 
-  signal(SIGSEGV, segfault_handler);
+    signal(SIGSEGV, segfault_handler);
 
-  std::mt19937 gen(seed);
-  std::uniform_real_distribution<double> ratio_dis(0, 1);
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<double> ratio_dis(0, 1);
 
-  size_t exist_key_n_per_thread = exist_keys.size() / fg_n;
-  size_t exist_key_start = thread_id * exist_key_n_per_thread;
-  size_t exist_key_end = (thread_id + 1) * exist_key_n_per_thread;
-  std::vector<index_key_t> op_keys(exist_keys.begin() + exist_key_start,
-                                   exist_keys.begin() + exist_key_end);
+    size_t exist_key_n_per_thread = exist_keys.size() / fg_n;
+    size_t exist_key_start = thread_id * exist_key_n_per_thread;
+    size_t exist_key_end = (thread_id + 1) * exist_key_n_per_thread;
+    std::vector<index_key_t> op_keys(exist_keys.begin() + exist_key_start,
+                                    exist_keys.begin() + exist_key_end);
 
-  if (non_exist_keys.size() > 0) {
-    size_t non_exist_key_n_per_thread = non_exist_keys.size() / fg_n;
-    size_t non_exist_key_start = thread_id * non_exist_key_n_per_thread,
-           non_exist_key_end = (thread_id + 1) * non_exist_key_n_per_thread;
-    op_keys.insert(op_keys.end(), non_exist_keys.begin() + non_exist_key_start,
-                   non_exist_keys.begin() + non_exist_key_end);
-  }
-
-  COUT_THIS("[micro] Worker" << thread_id << " Ready.");
-  size_t insert_i = exist_key_n_per_thread;
-  size_t mid_i = exist_key_n_per_thread - 1;
-  if (insert_ratio == 0) mid_i = 0;
-  const size_t end_i = op_keys.size();
-  size_t read_i = insert_i;
-  // exsiting keys fall within range [delete_i, insert_i)
-  ready_threads++;
-  uint64_t dummy_value = 1234;
-
-  while (!running)
-    ;
-
-  struct timespec begin_t, end_t;
-
-  while (running) {
-    if (training_threads > 0) {
-      std::unique_lock<std::mutex> lck(training_threads_mutex);             // Acquire lock
-      training_threads_cond.wait(lck, []{return (training_threads == 0);}); // Release lock & wait
+    size_t non_exist_key_index = op_keys.size();
+    size_t non_exist_key_n_per_thread = exist_key_n_per_thread;
+    size_t non_exist_key_start = 0;
+    size_t non_exist_key_end = exist_key_n_per_thread;
+    if (non_exist_keys.size() > 0) {
+        non_exist_key_n_per_thread = non_exist_keys.size() / fg_n;
+        non_exist_key_start = thread_id * non_exist_key_n_per_thread,
+        non_exist_key_end = (thread_id + 1) * non_exist_key_n_per_thread;
+        op_keys.insert(op_keys.end(), non_exist_keys.begin() + non_exist_key_start,
+                    non_exist_keys.begin() + non_exist_key_end);
     }
 
-    double d = ratio_dis(gen);
-    double p = ratio_dis(gen);
+    COUT_THIS("[micro] Worker" << thread_id << " Ready.");
 
-  #ifdef PRINT_LATENCY
-    clock_gettime(CLOCK_MONOTONIC, &begin_t);
-  #endif
-    
-    if (d <= read_ratio) {  // get
+    ready_threads++;
+    uint64_t dummy_value = 1234;
 
-#ifdef INSERTED_RANDOM
-            table->get(op_keys[(read_i - mid_i) * p + mid_i], dummy_value, thread_id);
+    const size_t end_i = op_keys.size();
+#ifdef SEQUENTIAL_DIST
+    size_t insert_i = exist_key_n_per_thread;
+    size_t read_i = 0;
+    size_t delete_i = 0;
+    size_t update_i = 0;
 #endif
-#ifdef ENTIRE_RANDOM
-            table->get(op_keys[p * read_i - 1], dummy_value, thread_id);
+#ifdef UNIFORM_DIST
+    size_t insert_i = exist_key_n_per_thread;
+    size_t read_i = insert_i;
+#endif
+#ifdef LATEST_DIST
+    #define LATEST_KEY_NUM 10
+    size_t insert_i = exist_key_n_per_thread;
+    std::vector<index_key_t> latest_keys;
+    for (int i=0; i<LATEST_KEY_NUM; i++) {
+        latest_keys.push_back(op_keys[insert_i]);
+        table->put(op_keys[insert_i++], dummy_value, thread_id);
+    }
+#endif
+#ifdef HOTSPOT_DIST
+    size_t hotspot_start = ratio_dis(gen) * non_exist_key_n_per_thread + non_exist_key_index;
+    size_t hotspot_end = std::min(hotspot_start + HOTSPOT_LENGTH, end_i) - 1;
+#endif
+#ifdef EXPONENT_DIST
+    std::exponential_distribution<double> exp_dis(EXP_LAMBDA);
+    size_t insert_i = exist_key_n_per_thread;
+    size_t read_i = insert_i;
+#endif
+#ifdef ZIPF_DIST
+    std::default_random_engine generator;
+    zipfian_int_distribution<int>::param_type p(1, 1e6, 0.99, 27.000);
+    zipfian_int_distribution<int> zipf_dis(p);
+    size_t insert_i = exist_key_n_per_thread;
+    size_t read_i = insert_i;
 #endif
 
+    while (!running)
+        ;
+
+    struct timespec begin_t, end_t;
+
+    while (running) {
+        if (training_threads > 0) {
+        std::unique_lock<std::mutex> lck(training_threads_mutex);             // Acquire lock
+        training_threads_cond.wait(lck, []{return (training_threads == 0);}); // Release lock & wait
+        }
+
+        volatile double d = ratio_dis(gen);
+        volatile double p = ratio_dis(gen);
+        
+    #ifdef EXPONENT_DIST
+        volatile double e = exp_dis(gen);
+    #endif
+    #ifdef ZIPF_DIST
+        volatile double z = (double)(zipf_dis(generator)) / (double)1e6;
+    #endif
+
+        clock_gettime(CLOCK_MONOTONIC, &begin_t);
+      
+        dummy_value = (int64_t)(1234 * p);
+        if (d <= read_ratio) {  // get
+            #ifdef SEQUENTIAL_DIST
+                table->get(op_keys[(read_i + delete_i) % end_i], dummy_value, thread_id);
+                read_i++;
+                if (unlikely(read_i == end_i)) read_i = 0;
+            #endif
+            #ifdef UNIFORM_DIST
+                table->get(op_keys[p * read_i - 1], dummy_value, thread_id);
+            #endif
+            #ifdef LATEST_DIST
+                table->get(latest_keys[p * LATEST_KEY_NUM], dummy_value, thread_id);
+            #endif
+            #ifdef HOTSPOT_DIST
+                table->get(op_keys[hotspot_start + (hotspot_end - hotspot_start) * p], dummy_value, thread_id);
+            #endif
+            #ifdef EXPONENT_DIST
+                table->get(op_keys[e * read_i - 1], dummy_value, thread_id);
+            #endif
+            #ifdef ZIPF_DIST
+                table->get(op_keys[z * read_i - 1], dummy_value, thread_id);
+            #endif
         } else if (d <= read_ratio + update_ratio) {  // update
-
-
-#ifdef INSERTED_RANDOM
-            table->put(op_keys[(read_i - mid_i) * p + mid_i], dummy_value, thread_id);
-#endif
-#ifdef ENTIRE_RANDOM
-            table->put(op_keys[p * insert_i], dummy_value, thread_id);
-#endif
-
+            #ifdef SEQUENTIAL_DIST
+                table->put(op_keys[(update_i + delete_i) % end_i], dummy_value, thread_id);
+                update_i++;
+                if (unlikely(update_i == end_i)) update_i = 0;
+            #endif
+            #ifdef UNIFORM_DIST
+                table->put(op_keys[p * insert_i - 1], dummy_value, thread_id);
+            #endif
+            #ifdef LATEST_DIST
+                table->put(latest_keys[p * LATEST_KEY_NUM], dummy_value, thread_id);
+            #endif
+            #ifdef HOTSPOT_DIST
+                table->put(op_keys[hotspot_start + (hotspot_end - hotspot_start) * p], dummy_value, thread_id);
+            #endif
+            #ifdef EXPONENT_DIST
+                table->put(op_keys[e * insert_i - 1], dummy_value, thread_id);
+            #endif
+            #ifdef ZIPF_DIST
+                table->put(op_keys[z * insert_i - 1], dummy_value, thread_id);
+            #endif
         } else if (d <= read_ratio + update_ratio + insert_ratio) {  // insert
-
-
-#ifdef INSERTED_RANDOM
-            table->insert(op_keys[insert_i], dummy_value, thread_id);
-            insert_i++;
-            read_i = (read_i >= end_i) ? (end_i) : (read_i + 1);
-            if (unlikely(insert_i == end_i)) {
-                insert_i = 0;
-            }
-#endif
-#ifdef ENTIRE_RANDOM
-            table->insert(op_keys[insert_i], dummy_value, thread_id);
-            insert_i++;
-            read_i = std::max(read_i, insert_i);
-            if (unlikely(insert_i == end_i)) {
-                insert_i = 0;
-            }
-#endif
-
-        } else if (d <= read_ratio + update_ratio + insert_ratio +
-                delete_ratio) {  // remove
-            table->remove(op_keys[p * op_keys.size()], thread_id);
+            #ifdef SEQUENTIAL_DIST
+                table->put(op_keys[insert_i], dummy_value, thread_id);
+                insert_i++;
+                if (unlikely(insert_i == end_i)) insert_i = 0;
+            #endif
+            #ifdef UNIFORM_DIST
+                table->put(op_keys[insert_i], dummy_value, thread_id);
+                insert_i++;
+                read_i = std::max(read_i, insert_i);
+                if (unlikely(insert_i == end_i)) insert_i = 0;
+            #endif
+            #ifdef LATEST_DIST
+                table->put(op_keys[insert_i], dummy_value, thread_id);
+                latest_keys.pop_back();
+                latest_keys.insert(latest_keys.begin(), op_keys[insert_i]);
+                insert_i++;
+                if (unlikely(insert_i == end_i)) insert_i = 0;
+            #endif
+            #ifdef HOTSPOT_DIST
+                table->put(op_keys[hotspot_start + (hotspot_end - hotspot_start) * p], dummy_value, thread_id);
+            #endif
+            #ifdef EXPONENT_DIST
+                table->put(op_keys[insert_i], dummy_value, thread_id);
+                insert_i++;
+                read_i = std::max(read_i, insert_i);
+                if (unlikely(insert_i == end_i)) insert_i = 0;
+            #endif
+            #ifdef ZIPF_DIST
+                table->put(op_keys[insert_i], dummy_value, thread_id);
+                insert_i++;
+                read_i = std::max(read_i, insert_i);
+                if (unlikely(insert_i == end_i)) insert_i = 0;
+            #endif
+        } else if (d <= read_ratio + update_ratio + insert_ratio + delete_ratio) {  // remove
+            #ifdef SEQUENTIAL_DIST
+                table->remove(op_keys[delete_i], thread_id);
+                delete_i++;
+                if (unlikely(delete_i == end_i)) delete_i = 0;
+            #endif
+            #ifdef UNIFORM_DIST
+                table->remove(op_keys[p * insert_i], thread_id);
+            #endif
+            #ifdef LATEST_DIST
+                table->remove(op_keys[p * insert_i], thread_id);
+            #endif
+            #ifdef HOTSPOT_DIST
+                table->remove(op_keys[hotspot_start + (hotspot_end - hotspot_start) * p], thread_id);
+            #endif
+            #ifdef EXPONENT_DIST
+                table->remove(op_keys[e * insert_i], thread_id);
+            #endif
+            #ifdef ZIPF_DIST
+                table->remove(op_keys[z * insert_i], thread_id);
+            #endif
         } else {  // scan
             std::vector<std::pair<index_key_t, uint64_t>> results;
-            table->scan(op_keys[p * read_i], 10, results,
-                    thread_id);
+            #ifdef SEQUENTIAL_DIST
+                table->scan(op_keys[(read_i + delete_i) % end_i], 10, results, thread_id);
+                read_i++;
+                if (unlikely(read_i == insert_i)) read_i = 0;
+            #endif
+            #ifdef UNIFORM_DIST
+                table->scan(op_keys[p * read_i], 10, results, thread_id);
+            #endif
+            #ifdef LATEST_DIST
+                table->scan(latest_keys[p * LATEST_KEY_NUM], 10, results, thread_id);
+            #endif
+            #ifdef HOTSPOT_DIST
+                table->scan(op_keys[hotspot_start + (hotspot_end - hotspot_start) * p], 10, results, thread_id);
+            #endif
+            #ifdef EXPONENT_DIST
+                table->scan(op_keys[e * read_i], 10, results, thread_id);
+            #endif
+            #ifdef ZIPF_DIST
+                table->scan(op_keys[z * read_i], 10, results, thread_id);
+            #endif
         }
-        #ifdef PRINT_LATENCY
         clock_gettime(CLOCK_MONOTONIC, &end_t);
         thread_param.latency_sum += (end_t.tv_sec - begin_t.tv_sec) + (end_t.tv_nsec - begin_t.tv_nsec) / 1000000000.0;
         thread_param.latency_count++;
-        #endif
         thread_param.throughput++;
-  }
+    }
 
-  pthread_exit(nullptr);
+    #ifdef LATENCY_BREAKDOWN
+    thread_param.group_traversal_sum = lt.group_traversal_sum;
+    thread_param.group_traversal_count = lt.group_traversal_count;
+    thread_param.inference_sum = lt.inference_sum;
+    thread_param.inference_count = lt.inference_count;
+    thread_param.linear_search_sum = lt.linear_search_sum;
+    thread_param.linear_search_count = lt.linear_search_count;
+    thread_param.range_search_sum = lt.range_search_sum;
+    thread_param.range_search_count = lt.range_search_count;
+    thread_param.buffer_search_sum = lt.buffer_search_sum;
+    thread_param.buffer_search_count = lt.buffer_search_count;
+    #endif
+
+    pthread_exit(nullptr);
 }
 
 void sig_handler(int signum) {
@@ -423,7 +572,6 @@ void run_benchmark(sindex_t *table, size_t sec) {
         throughput_buf << "[micro] >>> sec " << current_sec << " target throughput: " << (int)(tput / interval) << std::endl;
         std::cout << throughput_buf.str();
         std::flush(std::cout);
-        break;
     } else {
         std::ostringstream throughput_buf;
         current_sec += interval;
@@ -436,19 +584,29 @@ void run_benchmark(sindex_t *table, size_t sec) {
   running = false;
   void *status;
 
-  #ifdef PRINT_LATENCY
   double all_latency_sum = 0.0;
   int all_latency_count = 0;
-  #endif
   for (size_t i = 0; i < fg_n; i++) {
-    #ifdef PRINT_LATENCY
     all_latency_count += fg_params[i].latency_count;
     all_latency_sum += fg_params[i].latency_sum;
+
+    #ifdef LATENCY_BREAKDOWN
+    lt.group_traversal_sum = fg_params[i].group_traversal_sum;
+    lt.group_traversal_count = fg_params[i].group_traversal_count;
+    lt.inference_sum = fg_params[i].inference_sum;
+    lt.inference_count = fg_params[i].inference_count;
+    lt.linear_search_sum = fg_params[i].linear_search_sum;
+    lt.linear_search_count = fg_params[i].linear_search_count;
+    lt.range_search_sum = fg_params[i].range_search_sum;
+    lt.range_search_count = fg_params[i].range_search_count;
+    lt.buffer_search_sum = fg_params[i].buffer_search_sum;
+    lt.buffer_search_count = fg_params[i].buffer_search_count;
     #endif
-    int rc = pthread_join(threads[i], &status);
-    if (rc) {
-      COUT_N_EXIT("Error:unable to join," << rc);
-    }
+
+    //int rc = pthread_join(threads[i], &status);
+    //if (rc) {
+    //  COUT_N_EXIT("Error:unable to join," << rc);
+    //}
   }
 
   size_t throughput = 0;
@@ -456,13 +614,24 @@ void run_benchmark(sindex_t *table, size_t sec) {
     throughput += p.throughput;
   }
   
+  #ifndef LATENCY_BREAKDOWN
   std::ostringstream final_buf;
   final_buf << "[micro] Throughput(op/s): " << (int)(throughput / current_sec) << std::endl;
-  #ifdef PRINT_LATENCY
   final_buf << "[micro] Latency: " << (all_latency_sum / all_latency_count) << std::endl;
-  #endif
   std::cout << final_buf.str();
   std::flush(std::cout);
+  #endif
+
+  #ifdef LATENCY_BREAKDOWN
+  std::ostringstream latency_buf;
+  latency_buf << "[micro] group traverse latency: " << lt.group_traversal_sum / lt.group_traversal_count << std::endl;
+  latency_buf << "[micro] inference latency: " << lt.inference_sum / lt.inference_count << std::endl;
+  latency_buf << "[micro] linear search latency: " << lt.linear_search_sum / lt.linear_search_count << std::endl;
+  latency_buf << "[micro] range search latency: " << lt.range_search_sum / lt.range_search_count << std::endl;
+  latency_buf << "[micro] buffer search latency: " << lt.buffer_search_sum / lt.buffer_search_count << std::endl;
+  std::cout << latency_buf.str();
+  std::flush(std::cout); 
+  #endif
 }
 
 inline void parse_args(int argc, char **argv) {
@@ -487,7 +656,7 @@ inline void parse_args(int argc, char **argv) {
       {"sindex-backward-step", required_argument, 0, 'r'},
       {"initial-size", required_argument, 0, 'x'},
       {"target-size", required_argument, 0, 'y'},
-      {"mkl-threads", required_argument, 0, 'z'},
+      {"ideal-training-time", required_argument, 0, 'z'},
       {0, 0, 0, 0}};
   std::string ops = "a:b:c:d:e:f:g:h:i:j:k:l:m:n:o:p:q:r:x:y:z:";
   int option_index = 0;
@@ -582,8 +751,7 @@ inline void parse_args(int argc, char **argv) {
         INVARIANT(table_size > 0);
         break;
       case 'z':
-        mkl_threads = strtol(optarg, NULL, 10);
-        break;
+        ideal_training_interval = strtoul(optarg, NULL, 10);
       default:
         abort();
     }

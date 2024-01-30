@@ -166,7 +166,7 @@ void *Root<key_t, val_t, seq>::do_adjustment(void *args) {
   volatile bool &running = ((BGInfo *)args)->running;
 
   while (running) {
-    sleep(IDEAL_TRAINING_INTERVAL);
+    sleep(ideal_training_interval);
     //std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     if (started) {
       started = false;

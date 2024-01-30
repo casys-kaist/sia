@@ -38,6 +38,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <limits.h>
+#include <libgen.h>
 
 #include "../test_config.h"
 #include "../lock.h"
@@ -46,7 +48,7 @@
 #include "sindex_impl.h"
 #include "mkl.h"
 
-  double current_sec = 0.0;
+double current_sec = 0.0;
 
 struct alignas(CACHELINE_SIZE) FGParam;
 template <size_t len>
@@ -65,18 +67,13 @@ void *run_fg(void *param);
 inline void parse_args(int, char **);
 
 // parameters
-double read_ratio = 1;
-double insert_ratio = 0;
-double update_ratio = 0;
-double delete_ratio = 0;
-double scan_ratio = 0;
 size_t table_size = 1000000;
 size_t runtime = 10;
 size_t fg_n = 1;
 size_t bg_n = 1;
 
-char workload_type = 'a';
-char* workload_length = "10m_100m";
+char workload_type = 'D';
+char* dataset_name = "amazon";
 
 volatile bool running = false;
 std::atomic<size_t> ready_threads(0);
@@ -197,14 +194,16 @@ int main(int argc, char **argv) {
 
   is_initial = false;
 
-  mkl_set_num_threads(mkl_threads);
   run_benchmark(tab_xi, runtime);
   if (tab_xi != nullptr) delete tab_xi;
 }
 
 inline void prepare_sindex(sindex_t *&table) {
-  char filename[256];
-  sprintf(filename, "/dataset/ycsb/%s/workload%c_load.trace", workload_length, workload_type);
+  char filename[PATH_MAX];
+  char __exec_path[PATH_MAX];
+  char *ret = realpath("/proc/self/exe", __exec_path);
+  char *exec_path = dirname((char *)__exec_path);
+  sprintf(filename, "%s/../dataset/%s/Workload%c/workload_%c_load", exec_path, dataset_name, workload_type, workload_type);
 
   struct stat buf;
   int fd = open(filename, O_RDONLY);
@@ -247,8 +246,13 @@ void *run_fg(void *param) {
   std::uniform_real_distribution<> ratio_dis(0, 1);
 
   // Read workload trace file of the thread
-    char filename[256];
-    sprintf(filename, "/dataset/ycsb/%s/run/workload%c_%d", workload_length, workload_type, thread_id);
+    
+    char filename[PATH_MAX];
+    char __exec_path[PATH_MAX];
+    char *ret = realpath("/proc/self/exe", __exec_path);
+    char *exec_path = dirname((char *)__exec_path);
+    sprintf(filename, "%s/../../dataset/%s/Workload%c/workload_%c_worker_%d", exec_path, dataset_name, workload_type, workload_type, thread_id);
+    
 
     struct stat buf;
     int fd = open(filename, O_RDONLY);
@@ -284,10 +288,6 @@ void *run_fg(void *param) {
         lck.unlock();
     }
 
-    #ifdef LIMIT_THROUGHPUT
-    if (thread_param.throughput > (current_sec + 1) * MAX_THROUGHPUT) continue;   // Limit Maximum Throughput
-    #endif
-
     // We are not using the `key` here, but just leaving it for now
     sscanf(line, "%c user%ld %d", &op, &key, &readcount);
     index_key_t query_key(line + 6);
@@ -295,9 +295,7 @@ void *run_fg(void *param) {
 
     if (!token) break;
 
-#ifdef PRINT_LATENCY
     clock_gettime(CLOCK_MONOTONIC, &begin_t);
-#endif
     
     switch (op) {
       case 'r':
@@ -323,17 +321,13 @@ void *run_fg(void *param) {
       case 's':
       {
         std::vector<std::pair<index_key_t, uint64_t>> results;
-        //int range_records = std::max(int(ratio_dis(gen) * MAX_RANGE_RECORDS), 1);
         res = table->scan(query_key, 10, results, thread_id);
         break;
       }
     }
-#ifdef PRINT_LATENCY
     clock_gettime(CLOCK_MONOTONIC, &end_t);
     thread_param.latency_sum += (end_t.tv_sec - begin_t.tv_sec) + (end_t.tv_nsec - begin_t.tv_nsec) / 1000000000.0;
     thread_param.latency_count++;
-#endif
-
     thread_param.throughput++;
   }
   thread_param.alive = false;
@@ -419,9 +413,6 @@ void run_benchmark(sindex_t *table, size_t sec) {
       std::cout << throughput_buf.str();
       std::flush(std::cout);
       if (!threads_alive) {
-          std::ostringstream temp_buf;
-          temp_buf << "temp throughput: " << (int)(temp_throughput / temp_sec) << std::endl;
-          std::cout << temp_buf.str();
           std::flush(std::cout);
           break;
       } else {
@@ -433,15 +424,11 @@ void run_benchmark(sindex_t *table, size_t sec) {
   running = false;
   void *status;
 
-  #ifdef PRINT_LATENCY
   double all_latency_sum = 0.0;
   int all_latency_count = 0;
-  #endif
   for (size_t i = 0; i < fg_n; i++) {
-    #ifdef PRINT_LATENCY
     all_latency_count += fg_params[i].latency_count;
     all_latency_sum += fg_params[i].latency_sum;
-    #endif
 
     #ifdef LATENCY_BREAKDOWN
     lt.group_traversal_sum = fg_params[i].group_traversal_sum;
@@ -466,13 +453,14 @@ void run_benchmark(sindex_t *table, size_t sec) {
   for (auto &p : fg_params) {
     throughput += p.throughput;
   }
+
+  #ifndef LATENCY_BREAKDOWN
   std::ostringstream final_buf;
   final_buf << "[micro] Throughput(op/s): " << (int)(throughput / current_sec) << std::endl;
-  #ifdef PRINT_LATENCY
   final_buf << "[micro] Latency: " << (all_latency_sum / all_latency_count) << std::endl;
-  #endif
   std::cout << final_buf.str();
   std::flush(std::cout);
+  #endif
 
   #ifdef LATENCY_BREAKDOWN
   std::ostringstream latency_buf;
@@ -488,12 +476,6 @@ void run_benchmark(sindex_t *table, size_t sec) {
 
 inline void parse_args(int argc, char **argv) {
   struct option long_options[] = {
-      {"read", required_argument, 0, 'a'},
-      {"insert", required_argument, 0, 'b'},
-      {"remove", required_argument, 0, 'c'},
-      {"update", required_argument, 0, 'd'},
-      {"scan", required_argument, 0, 'e'},
-      {"table-size", required_argument, 0, 'f'},
       {"runtime", required_argument, 0, 'g'},
       {"fg", required_argument, 0, 'h'},
       {"bg", required_argument, 0, 'i'},
@@ -506,11 +488,10 @@ inline void parse_args(int argc, char **argv) {
       {"sindex-partial-len", required_argument, 0, 'p'},
       {"sindex-forward-step", required_argument, 0, 'q'},
       {"sindex-backward-step", required_argument, 0, 'r'},
-      {"workload-length", required_argument, 0, 'w'},
+      {"dataset-name", required_argument, 0, 'w'},
       {"workload-type", required_argument, 0, 't'},
-      {"mkl-threads", required_argument, 0, 'z'},
       {0, 0, 0, 0}};
-  std::string ops = "a:b:c:d:e:f:g:h:i:j:k:l:m:n:o:p:q:r:w:t:z:";
+  std::string ops = "g:h:i:j:k:l:m:n:o:p:q:r:w:t:";
   int option_index = 0;
 
   while (1) {
@@ -521,30 +502,6 @@ inline void parse_args(int argc, char **argv) {
       case 0:
         if (long_options[option_index].flag != 0) break;
         abort();
-        break;
-      case 'a':
-        read_ratio = strtod(optarg, NULL);
-        INVARIANT(read_ratio >= 0 && read_ratio <= 1);
-        break;
-      case 'b':
-        insert_ratio = strtod(optarg, NULL);
-        INVARIANT(insert_ratio >= 0 && insert_ratio <= 1);
-        break;
-      case 'c':
-        delete_ratio = strtod(optarg, NULL);
-        INVARIANT(delete_ratio >= 0 && delete_ratio <= 1);
-        break;
-      case 'd':
-        update_ratio = strtod(optarg, NULL);
-        INVARIANT(update_ratio >= 0 && update_ratio <= 1);
-        break;
-      case 'e':
-        scan_ratio = strtod(optarg, NULL);
-        INVARIANT(scan_ratio >= 0 && scan_ratio <= 1);
-        break;
-      case 'f':
-        table_size = strtoul(optarg, NULL, 10);
-        INVARIANT(table_size > 0);
         break;
       case 'g':
         runtime = strtoul(optarg, NULL, 10);
@@ -595,25 +552,16 @@ inline void parse_args(int argc, char **argv) {
         INVARIANT(sindex::config.backward_step > 0);
         break;
       case 'w':
-          workload_length = optarg;
+          dataset_name = optarg;
           break;
       case 't':
           memcpy(&workload_type, optarg, 1);
           break;
-      case 'z':
-        mkl_threads = strtol(optarg, NULL, 10);
-        break;
       default:
         abort();
     }
   }
 
-  COUT_THIS("[micro] Read:Insert:Update:Delete:Scan = "
-            << read_ratio << ":" << insert_ratio << ":" << update_ratio << ":"
-            << delete_ratio << ":" << scan_ratio)
-  double ratio_sum =
-      read_ratio + insert_ratio + delete_ratio + scan_ratio + update_ratio;
-  INVARIANT(ratio_sum > 0.9999 && ratio_sum < 1.0001);  // avoid precision lost
   COUT_VAR(runtime);
   COUT_VAR(fg_n);
   COUT_VAR(bg_n);
@@ -627,6 +575,6 @@ inline void parse_args(int argc, char **argv) {
   COUT_VAR(sindex::config.partial_len_bound);
   COUT_VAR(sindex::config.forward_step);
   COUT_VAR(sindex::config.backward_step);
-  COUT_VAR(workload_length);
+  COUT_VAR(dataset_name);
   COUT_VAR(workload_type);
 }

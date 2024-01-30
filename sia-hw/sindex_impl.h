@@ -57,7 +57,6 @@ SIndex<key_t, val_t, seq>::SIndex(const std::vector<key_t> &keys,
   // malloc memory for root & init root
   root = new root_t();
   root->init(keys, vals);
-  mkl_set_num_threads(mkl_threads);
   init_accelerator();
   start_bg();
 }

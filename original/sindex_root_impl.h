@@ -214,7 +214,6 @@ void *Root<key_t, val_t, seq>::do_adjustment(void *args) {
       // iterate through the array, and do maintenance
       size_t m_split = 0, g_split = 0, m_merge = 0, g_merge = 0, compact = 0;
       size_t buf_size = 0, cnt = 0;
-      printf("Group num: %d\n", end_group_i - begin_group_i);
       uint64_t key_sum = 0;
       for (size_t group_i = begin_group_i; group_i < end_group_i; group_i++) {
         if (group_i % 50000 == 0) {
@@ -376,7 +375,6 @@ void *Root<key_t, val_t, seq>::do_adjustment(void *args) {
           group = &((*group)->next);
         }
       }
-      printf("average key length: %f\n", (double)key_sum / (end_group_i - begin_group_i));
 
       finished = true;
       DEBUG_THIS("------ [structure update] m_split_n: " << m_split);

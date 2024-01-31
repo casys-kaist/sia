@@ -57,7 +57,7 @@ $ apt-get install -y intel-mkl-2019.0-045
 
 ### Amazon Review Dataset
 
-You can download Amazon review dataset with the following commands. Downloaded dataset will be placed in `dataset/raw_dataset` directory.
+You can download [Amazon review dataset](https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/)[^2] with the following commands. Downloaded dataset will be placed in `dataset/raw_dataset` directory.
 
 ```shell
 $ cd dataset/raw_dataset
@@ -73,11 +73,13 @@ $ python3 amazon_convert.py ../amazon
 
 Preprocessed dataset will be prepared in `dataset/amazon` directory.
 
+[^2]: Jianmo Ni, Jiacheng Li, and Julian McAuley. 2019. Justifying Recommendations using Distantly-Labeled Reviews and Fine-Grained Aspects. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP).
+
 
 
 ### MemeTracker Dataset
 
-You can download MemeTracker dataset with the following commands. The dataset consists of multiple files, so you can download a few of them. Downloaded dataset files will be placed in `dataset/raw_dataset` directory.
+You can download [MemeTracker dataset](https://snap.stanford.edu/data/memetracker9.html)[^3] with the following commands. The dataset consists of multiple files, so you can download a few of them. Downloaded dataset files will be placed in `dataset/raw_dataset` directory.
 
 ```shell
 $ cd dataset/raw_dataset
@@ -98,11 +100,13 @@ $ python3 memetracker_convert.py ../memetracker
 
 Preprocessed dataset will be preprared in `dataset/memetracker` directory.
 
+[^3]: Jure Leskovec, Lars Backstrom, and Jon Kleinberg. 2009. Meme-Tracking and the Dynamics of the News Cycle. In Proceedings of the 15th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (Paris, France) (KDD ’09).
+
 
 
 ### Twitter Cache Trace
 
-Since Twitter Cache Trace dataset is very huge, you can selectivly use partitioned trace file, as in our paper *(e.g., 12.2, 15.5, 31.1, 37.3)*. You can find and download [Twitter Cache Trace](https://github.com/twitter/cache-trace) in the following links. 
+Since [Twitter Cache Trace dataset](https://github.com/twitter/cache-trace)[^4] is very huge dataset, you can selectivly use partitioned trace file, as in our paper *(e.g., 12.2, 15.5, 31.1, 37.3)*. You can find and download Twitter Cache Trace in the following links. 
 
 | Cluster Number | Link                                         |
 | -------------- | -------------------------------------------- |
@@ -124,6 +128,8 @@ $ python3 twitter_convert.py 37.3 ../raw_dataset/cluster37.003 ../twitter
 ```
 
 Preprocessed dataset will be prepared in `dataset/twitter` directory.
+
+[^4]: Juncheng Yang, Yao Yue, and K. V. Rashmi. 2020. A Large Scale Analysis of Hundreds of In-Memory Cache Clusters at Twitter. In Proceedings of the 14th USENIX Conference on Operating Systems Design and Implementation (OSDI’20).
 
 
 
@@ -278,9 +284,6 @@ $ curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A
 	| sudo apt-key add
 $ sudo apt-get update
 $ sudo apt-get install sbt
-```
-
-```sh
 $ curl -fL https://github.com/coursier/coursier/releases/latest/download/cs-x86_64-pc-linux.gz
 	| gzip -d
 	> cs
@@ -295,7 +298,17 @@ $ cd sia-accelerator
 $ sbt run
 ```
 
-Compiled Verilog code will be generated in the `sia-accelerator/generated` directory.
+Select `1`, if you encounter the following menu:
+
+```shell
+>>> Multiple main classes detected. Select one to run:
+[1] QRD_Unit
+...
+
+Enter number: 1
+```
+
+It will compile Chisel3 code and generate Verilog code. Output Verilog code will be generated in the `sia-accelerator/generated` directory.
 
 
 
@@ -309,3 +322,16 @@ For the HW interface & accelerator wrapper, [Intel FPGA BBB](https://github.com/
 
 Quartus II v20.1 is used to synthesize the entire HW-side FPGA kernel, interface, and accelerator wrapper.
 
+After compiling Chisel3 codes, enter the following commands that will copy compiled Verilog codes from Chisel3 code into `intel/src` directory.
+
+```shell
+$ cd sia-accelerator/intel/src
+$ ./copy_generated_rtl.sh ../../generated
+```
+
+The following command will synthesize the target accelerator, and also host-FPGA interface with Quartus II installed in the machine. (Environment variable may need to be modified, please refer to OPAE SDK repository or scripts installed with Quartus II.)
+
+```shell
+$ cd sia-accelerator/intel/testbench/qrd_unit
+$ ./synth.sh
+```

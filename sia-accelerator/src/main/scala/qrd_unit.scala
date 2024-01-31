@@ -424,44 +424,11 @@ class QRD_Unit_Wrapper(
 
 object QRD_Unit extends App {
     // TE_NUM, PU_NUM, PE_NUM, KEY_LENGTH, NUM_DOT_PE, MEM_SIZE, QUEUE_SIZE
-    /*val config_list: List[(Int, Int, Int)] = List(
-        (3, 1, 8),
-        (3, 8, 1),
-        (2, 3, 4),
-        (2, 4, 3),
-        (1, 12, 2),
-        (1, 6, 4),
-        (1, 4, 6),
-        (1, 2, 12),
-        (4, 1, 6),
-        (4, 2, 3),
-        (4, 3, 2),
-        (4, 6, 1),
-    )
-    for (config <- config_list) {
-        val (numTE, numPU, numPE) = config
-        println(s"Compilling ${numTE}_${numPU}_${numPE}")
-        (new chisel3.stage.ChiselStage).emitVerilog(
-            new QRD_Unit_Wrapper(numTE, numPU, numPE, 32, 8, 64, 64),
-            Array("--target-dir", s"generated/${numTE}_${numPU}_${numPE}")
-        )
-    }*/
     val config_list: List[(Int, Int)] = List(
-        (1, 8),
-        (8, 1),
-        (4, 2),
-        (3, 4),
-        (4, 3),
-        (12, 2),
-        (6, 4),
-        (4, 6),
-        (2, 12),
         (2, 3),
-        (3, 2),
     )
     for (config <- config_list) {
         val (numPU, numPE) = config
-        println(s"Compilling ${numPU}_${numPE}")
         (new chisel3.stage.ChiselStage).emitVerilog(
             new QRD_Unit(numPU, numPE, 32, 8, 64, 64),
             Array("--target-dir", s"generated/${numPU}_${numPE}")

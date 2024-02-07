@@ -3,7 +3,7 @@ import os
 from typing import List
 
 # Configurations
-INDEX_LIST=("original", "sia-sw", "ideal")
+INDEX_LIST=("original", "sia-sw", "ideal", "cuckoo", "wormhole")
 RUNTIME=30
 REPEAT_NUM=1
 FG_THREADS=16

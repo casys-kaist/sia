@@ -32,6 +32,7 @@ list(APPEND TestList PERFORMANCE LATENCY_BREAKDOWN)
 list(LENGTH BenchList len_ent)
 math(EXPR len_iter "${len_ent} - 1")
 
+# Build Sindex
 foreach(Test IN LISTS TestList)
     foreach(Index IN LISTS IndexList)
         foreach(val RANGE ${len_iter})
@@ -69,7 +70,7 @@ foreach(Test IN LISTS TestList)
     endforeach()
 endforeach()
 
-list(APPEND DistList UNIFORM_DIST SEQUENTIAL_DIST LATEST_DIST EXPONENTIAL_DIST ZIPF_DIST HOTSPOT_DIST)
+list(APPEND DistList UNIFORM_DIST SEQUENTIAL_DIST LATEST_DIST EXPONENT_DIST ZIPF_DIST HOTSPOT_DIST)
 foreach(Dist IN LISTS DistList)
     foreach(Index IN LISTS IndexList)
         add_executable(micro_${Index}_${Dist}
@@ -100,4 +101,104 @@ foreach(Dist IN LISTS DistList)
             -lpthread
         )
     endforeach()
+endforeach()
+
+# Build cuckoo-trie
+foreach(val RANGE ${len_iter})
+    list(GET BenchList ${val} Bench)
+    list(GET KeyList ${val} Key)
+    add_executable(PERFORMANCE_cuckoo_${Bench}_${Key}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo_${Bench}.cpp
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/main.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/util.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/verify_trie.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/random.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/atomics.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/mt_debug.c
+    )
+    target_include_directories(PERFORMANCE_cuckoo_${Bench}_${Key}
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code
+    )
+    target_link_libraries(PERFORMANCE_cuckoo_${Bench}_${Key}
+        PRIVATE
+        -lpthread
+        mkl_rt
+    )
+    target_compile_definitions(PERFORMANCE_cuckoo_${Bench}_${Key} PRIVATE NDEBUGGING)
+    target_compile_definitions(PERFORMANCE_cuckoo_${Bench}_${Key} PRIVATE MAX_KEY_SIZE=${Key})
+endforeach()
+
+foreach(Dist IN LISTS DistList)
+    add_executable(micro_cuckoo_${Dist}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo_bench.cpp
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/main.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/util.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/verify_trie.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/random.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/atomics.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code/mt_debug.c
+    )
+    target_include_directories(micro_cuckoo_${Dist}
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/cuckoo-trie-code
+    )
+    target_link_libraries(micro_cuckoo_${Dist}
+        PRIVATE
+        -lpthread
+        mkl_rt
+    )
+    target_compile_definitions(micro_cuckoo_${Dist} PRIVATE NDEBUGGING)
+    target_compile_definitions(micro_cuckoo_${Dist} PRIVATE MAX_KEY_SIZE=32)
+    target_compile_definitions(micro_cuckoo_${Dist} PRIVATE ${Dist})
+endforeach()
+
+# Build Wormhole
+foreach(val RANGE ${len_iter})
+    list(GET BenchList ${val} Bench)
+    list(GET KeyList ${val} Key)
+    add_executable(PERFORMANCE_wormhole_${Bench}_${Key}
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole_${Bench}.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole/lib.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole/wh.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole/kv.c
+    )
+    target_include_directories(PERFORMANCE_wormhole_${Bench}_${Key}
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole
+    )
+    target_link_libraries(PERFORMANCE_wormhole_${Bench}_${Key}
+        PRIVATE
+        -lpthread
+        mkl_rt
+        -L${CMAKE_CURRENT_SOURCE_DIR}/wormhole
+    )
+    target_compile_definitions(PERFORMANCE_wormhole_${Bench}_${Key} PRIVATE NDEBUGGING)
+    target_compile_definitions(PERFORMANCE_wormhole_${Bench}_${Key} PRIVATE MAX_KEY_SIZE=${Key})
+endforeach()
+
+foreach(Dist IN LISTS DistList)
+    add_executable(micro_wormhole_${Dist}
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole_${Bench}.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole/lib.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole/wh.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole/kv.c
+    )
+    target_include_directories(micro_wormhole_${Dist}
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/wormhole
+    )
+    target_link_libraries(micro_wormhole_${Dist}
+        PRIVATE
+        -lpthread
+        mkl_rt
+        -L${CMAKE_CURRENT_SOURCE_DIR}/wormhole
+    )
+    target_compile_definitions(micro_wormhole_${Dist} PRIVATE NDEBUGGING)
+    target_compile_definitions(micro_wormhole_${Dist} PRIVATE MAX_KEY_SIZE=32)
+    target_compile_definitions(micro_wormhole_${Dist} PRIVATE ${Dist})
 endforeach()

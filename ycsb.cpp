@@ -122,14 +122,8 @@ class StrKey {
   StrKey(uint64_t key) { COUT_N_EXIT("str key no uint64"); }
   StrKey(const char* s) {
         int idx = 0;
-        int repeat = 0;
         for (int i = 0; i < len; i++) {
-            // 19 digits are read repeatedly
-            if (idx == 19) {
-                idx = 0;
-                repeat += 1;
-            }
-            buf[i] = s[idx++] + repeat;
+            buf[i] = s[idx++];
         }
     }
   StrKey(const StrKey &other) { memcpy(&buf, &other.buf, len); }

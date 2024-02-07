@@ -1,0 +1,6 @@
+[submodule "cuckoo-trie-code"]
+	path = cuckoo-trie-code
+	url = https://github.com/cuckoo-trie/cuckoo-trie-code.git
+[submodule "wormhole"]
+	path = wormhole
+	url = https://github.com/wuxb45/wormhole.git

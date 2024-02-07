@@ -3,12 +3,12 @@ import os
 from typing import List
 
 # Configurations
-INDEX_LIST=("original", "sia-sw", "ideal", "cuckoo", "wormhole")
+INDEX_LIST=("original", "sia-sw", "ideal", "cuckoo", "wormhole", "alex")
 RUNTIME=30
 REPEAT_NUM=1
 FG_THREADS=16
 
-DISTRIBUTION_LIST=("UNIFORM_DIST", "SEQUENTIAL_DIST", "LATEST_DIST", "EXPONENTIAL_DIST", "ZIPF_DIST", "HOTSPOT_DIST")
+DISTRIBUTION_LIST=("UNIFORM_DIST", "SEQUENTIAL_DIST", "LATEST_DIST", "EXPONENT_DIST", "ZIPF_DIST", "HOTSPOT_DIST")
 INITIAL_SIZE=10_000_000
 TARGET_SIZE=100_000_000
 DATASET_SIZE=100_000_000
@@ -20,15 +20,29 @@ for i in range(REPEAT_NUM):
     for index in INDEX_LIST:
         for dist in DISTRIBUTION_LIST:
             print(f"{index}_{dist}_{i}")
-            os.system(f"../build/micro_{index}_{dist}       \
-                        --fg={FG_THREADS}                   \
-                        --runtime={RUNTIME}                 \
-                        --read={READ_RATIO}                 \
-                        --insert={INSERT_RATIO}             \
-                        --initial-size={INITIAL_SIZE}       \
-                        --target-size={TARGET_SIZE}         \
-                        --table-size={DATASET_SIZE}         \
-                        > ../results/request_dist_{index}_{dist}_{i}.txt")
+            if index != "alex":
+                os.system(f"../build/micro_{index}_{dist}       \
+                            --fg={FG_THREADS}                   \
+                            --runtime={RUNTIME}                 \
+                            --read={READ_RATIO}                 \
+                            --insert={INSERT_RATIO}             \
+                            --initial-size={INITIAL_SIZE}       \
+                            --target-size={TARGET_SIZE}         \
+                            --table-size={DATASET_SIZE}         \
+                            > ../results/request_dist_{index}_{dist}_{i}.txt")
+            else:
+                os.system(f"../build/micro_{index}_{dist}       \
+                            --fg={FG_THREADS}                   \
+                            --runtime={RUNTIME}                 \
+                            --read={READ_RATIO}                 \
+                            --insert={INSERT_RATIO}             \
+                            --key-length=32                     \
+                            --initial-size={INITIAL_SIZE}       \
+                            --target-size={TARGET_SIZE}         \
+                            --table-size={DATASET_SIZE}         \
+                            --node-size=8                       \
+                            --delta-idx-size=0                  \
+                            > ../results/request_dist_{index}_{dist}_{i}.txt")
 
 # Parse
 def extract_throughput_n_latency(filename: str) -> List[float]:

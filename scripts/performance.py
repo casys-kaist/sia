@@ -3,7 +3,7 @@ import os
 from typing import List
 
 # Configurations
-INDEX_LIST=("original", "sia-sw", "ideal", "cuckoo", "wormhole")
+INDEX_LIST=("original", "sia-sw", "ideal", "cuckoo", "wormhole", "alex")
 RUNTIME=30
 REPEAT_NUM=1
 FG_THREADS=16
@@ -14,29 +14,54 @@ YCSB_WORKLOAD_LIST=("D", "E")
 TWITTER_TRACE_NUMBER_LIST=("12.2", "15.5", "31.1", "37.3")
 TWITTER_KEY_LIST=(44, 19, 47, 82)
 
+YCSB_ALEX_HYPERPARAM=((128, 63), (512, 63))
+TWITTER_ALEX_HYPERPARAM=((500, 512), (1500, 256), (1500, 256), (5000, 64))
+
 # Run YCSB
 for i in range(REPEAT_NUM):
     for index in INDEX_LIST:
-        for dataset, key_len in zip(YCSB_DATASET_LIST, YCSB_KEY_LIST):
+        for dataset, key_len, alex_entry in zip(YCSB_DATASET_LIST, YCSB_KEY_LIST, YCSB_ALEX_HYPERPARAM):
             for workload in YCSB_WORKLOAD_LIST:
                 print(f"{index}_{dataset}_{workload}_{i}")
-                os.system(f'../build/PERFORMANCE_{index}_ycsb_{key_len} \
-                                --fg={FG_THREADS}           \
-                                --runtime={RUNTIME}         \
-                                --dataset-name={dataset}    \
-                                --workload-type={workload}  \
-                                > ../results/performance_{index}_{dataset}_{workload}_{i}.txt')
+                if index != "alex":
+                    os.system(f'../build/PERFORMANCE_{index}_ycsb_{key_len} \
+                                    --fg={FG_THREADS}           \
+                                    --runtime={RUNTIME}         \
+                                    --dataset-name={dataset}    \
+                                    --workload-type={workload}  \
+                                    > ../results/performance_{index}_{dataset}_{workload}_{i}.txt')
+                else:
+                    os.system(f'../build/PERFORMANCE_{index}_ycsb       \
+                                    --fg={FG_THREADS}                   \
+                                    --runtime={RUNTIME}                 \
+                                    --dataset-name={dataset}            \
+                                    --workload-type={workload}          \
+                                    --key-length={key_len}              \
+                                    --node-size={alex_entry[0]}         \
+                                    --delta-idx-size={alex_entry[1]}    \
+                                    > ../results/performance_{index}_{dataset}_{workload}_{i}.txt')
+
 
 # Run Twitter Cache Trace
 for i in range(REPEAT_NUM):
     for index in INDEX_LIST:
-        for cluster, key_len in zip(TWITTER_TRACE_NUMBER_LIST, TWITTER_KEY_LIST):
+        for cluster, key_len, alex_entry in zip(TWITTER_TRACE_NUMBER_LIST, TWITTER_KEY_LIST, TWITTER_ALEX_HYPERPARAM):
             print(f"{index}_{cluster}_{i}")
-            os.system(f'../build/PERFORMANCE_{index}_twitter_{key_len}  \
-                                --fg={FG_THREADS}           \
-                                --runtime={RUNTIME}         \
-                                --cluster-number={cluster}  \
-                                > ../results/performance_{index}_{cluster}_{i}.txt')
+            if index != "alex":
+                os.system(f'../build/PERFORMANCE_{index}_twitter_{key_len}  \
+                                    --fg={FG_THREADS}           \
+                                    --runtime={RUNTIME}         \
+                                    --cluster-number={cluster}  \
+                                    > ../results/performance_{index}_{cluster}_{i}.txt')
+            else:
+                os.system(f'../build/PERFORMANCE_{index}_twitter        \
+                                    --fg={FG_THREADS}                   \
+                                    --runtime={RUNTIME}                 \
+                                    --cluster-number={cluster}          \
+                                    --key-length={key_len}              \
+                                    --node-size={alex_entry[0]}         \
+                                    --delta-idx-size={alex_entry[1]}    \
+                                    > ../results/performance_{index}_{cluster}_{i}.txt')
 
 # Parse
 def extract_throughput_n_latency(filename: str) -> List[float]:

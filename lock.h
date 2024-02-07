@@ -23,6 +23,10 @@ pid_t throughput_pid;
 // Used for SIndex
 bool is_initial = true;
 
+// Used for ALEX
+uint32_t delta_idx_capacity_const = 32;
+uint32_t node_size_const = 1;
+
 // Used for Latency Breakdown
 typedef struct {
     double group_traversal_sum = 0.0;   // Used as tree traversal time in

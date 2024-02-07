@@ -28,6 +28,7 @@ To address this performance problem, we develop an algorithm-hardware co-designe
 - `ideal`: Idealized version of SIndex that emulates the system with no training cost.
 - `sia-sw`: CPU-only SIA.
 - `sia-hw`: FPGA accelerated SIA.
+- `alex`: string & multi-threaded ALEX.
 - `sia-accelerator/src`: FPGA accelerator code written in Chisel3.
 - `sia-accelerator/intel`: FPGA-CPU interface for Intel Harp platform.
 - `dataset/preprocessing`: Scripts for preprocessing dataset
@@ -55,7 +56,7 @@ $ apt-get install -y intel-mkl-2019.0-045
 
 ## Clone
 
-Clone this repository including baseline indexes (cuckoo-trie and wormhole).
+Clone this repository including baseline indexes ([cuckoo-trie](https://github.com/cuckoo-trie/cuckoo-trie-code) and [wormhole](https://github.com/wuxb45/wormhole)).
 
 ```shell
 $ git clone --recursive https://github.com/sia-index/sia.git
@@ -214,7 +215,7 @@ For all the above commands, you can use `original`, `sia-hw`, and `ideal` instea
 
 All results generated with the following scripts will be export in the format of `.csv` file.
 
-You can edit the list of **index** *(e.g. original, sia-sw, ideal, wormhole, cuckoo)*, **YCSB dataset** *(e.g. amazon, memetracker)*, **YCSB workload** *(e.g. D, E)*, and **Twitter Cache Trace number** *(e.g. 12.2, 15.5, 31.1, 37.3)* at the beginning of the Python scripts. You can also specifiy the **number of times you want to repeat** the experiment. The exported result is the average of the entire trial.
+You can edit the list of **index** *(e.g. original, sia-sw, ideal, wormhole, cuckoo, alex)*, **YCSB dataset** *(e.g. amazon, memetracker)*, **YCSB workload** *(e.g. D, E)*, and **Twitter Cache Trace number** *(e.g. 12.2, 15.5, 31.1, 37.3)* at the beginning of the Python scripts. You can also specifiy the **number of times you want to repeat** the experiment. The exported result is the average of the entire trial.
 
 ### Throughput & Latency Measurement
 

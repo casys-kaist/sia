@@ -1,24 +1,14 @@
 # SIA
 
-**SIA**: **S**tring-key **l**earned Index **A**cceleration is an algorithm-hardware co-designed string-key learned index system for efficient and scable indexing. SIA exploits a memoization technique to reduce the cost of retraining for inserted keys. This technology utilizes the algorithmic characteristics of matrix decomposition and can be applied to updatable learned indexes based on linear regression models. Also, SIA offloads model training to a dedicated FPGA accelerator, allowing model training to be accelerated and CPU resources to be focused on query processing.
+![](./fig/overview.png)
+
+**SIA**: **S**tring-key **l**earned Index **A**cceleration is an algorithm-hardware co-designed string-key learned index system for efficient and scable indexing. Unlike traditional data structures such as trees or hash tables, learned indexes employ machine learning models. One type of learned index, Recursive Model Index (RMI), infers the position of the key by constructing machine learning models ($f_{00}, f_{10}, ...$) into a hierarchical structure as depicted in *Figure (a)* above. However, existing learned index systems (*Figure (b)*) face performance bottleneck due to simultaneous CPU model inference and training.
+
+To mitigate this bottleneck, SIA exploits memoization technique to reduce the cost of retraining for inserted keys. This solution utilizes the algorithmic characteristics of matrix decomposition and can be applied to updatable learned indexes based on linear regression models. Also, SIA offloads model training to a dedicated FPGA accelerator, allowing model training to be accelerated and CPU resources to be focused on model inference and query processing. The concept of SIA is shown in *Figure (c)* above.
 
 This repository contains the full implementation of SIA-SW, FPGA accelerator kernel of SIA-HW written in Chisel3, and CPU-FPGA interface code for Intel Harp system. Our implementaion is based on the previous work, SIndex[^1] (https://ipads.se.sjtu.edu.cn:1312/opensource/xindex/-/tree/sindex/).
 
 [^1]: Youyun Wang, Chuzhe Tang, Zhaoguo Wang, and Haibo Chen. 2020. SIndex: A Scalable Learned Index for String Keys. In Proceedings of the 11th ACM SIGOPS Asia-Pacific Workshop on Systems (Tsukuba, Japan) (APSys ’20).
-
-
-
-## Abstract
-
-Learned indexes use machine learning models to learn the mappings between keys and their corresponding positions in key-value indexes. These indexes use the mapping information as training data. Learned indexes require frequent retrainings of their models to incorporate the changes introduced by update queries. To efficiently retrain the models, existing learned index systems often harness a linear algebraic QR factorization technique that performs matrix decomposition. This factorization approach processes all key-position pairs during each retraining, resulting in compute operations that grow linearly with the total number of keys and their lengths. Consequently, the retrainings create a severe performance bottleneck, especially for variable-length string keys, while the retrainings are crucial for maintaining high prediction accuracy and in turn, ensuring low query service latency.
-
-To address this performance problem, we develop an algorithm-hardware co-designed string-key learned index system, dubbed SIA. In designing SIA, we leverage a unique algorithmic property of the matrix decomposition-based training method. Exploiting the property, we develop a memoization-based incremental training scheme, which only requires computation over updated keys, while decomposition results of non-updated keys from previous computations can be reused. We further enhance SIA to offload a portion of this training process to an FPGA accelerator to not only relieve CPU resources for serving index queries (i.e., inference), but also accelerate the training itself. Our evaluation shows that compared to ALEX, LIPP, and SIndex, a state-of-the-art learned index systems, SIA-accelerated learned indexes offer 2.6× and 3.4× higher throughput on the two real-world benchmark suites, YCSB and Twitter cache trace, respectively.
-
-
-
-## Citation
-
-*[TBD]*
 
 
 
